@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Test synology-dns plugin installation
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+PASS=0
+FAIL=0
+
+check() {
+  local desc="$1"; shift
+  if "$@" &>/dev/null 2>&1; then
+    echo "  PASS: $desc"
+    ((PASS++)) || true
+  else
+    echo "  FAIL: $desc"
+    ((FAIL++)) || true
+  fi
+}
+
+echo "==> synology-dns tests"
+
+NAMED_BASE="/var/packages/DNSServer/target/named"
+RELOAD_DIR="/reload"
+SYNO_DNS_ZONE="$(dokku config:get --global SYNO_DNS_ZONE 2>/dev/null || true)"
+
+check "named base directory exists" test -d "$NAMED_BASE"
+check "zone directory exists" test -d "${NAMED_BASE}/etc/zone/master"
+check "reload trigger directory exists" test -d "$RELOAD_DIR"
+check "reload trigger directory is writable" test -w "$RELOAD_DIR"
+check "SYNO_DNS_ZONE is configured" test -n "$SYNO_DNS_ZONE"
+check "SYNO_NAS_IP is configured" test -n "$(dokku config:get --global SYNO_NAS_IP 2>/dev/null || true)"
+
+if [[ -n "$SYNO_DNS_ZONE" ]]; then
+  check "zone file exists" test -f "${NAMED_BASE}/etc/zone/master/${SYNO_DNS_ZONE}"
+  check "zone file is writable" test -w "${NAMED_BASE}/etc/zone/master/${SYNO_DNS_ZONE}"
+fi
+
+# Test rndc-sidecar trigger mechanism
+if [[ -d "$RELOAD_DIR" && -w "$RELOAD_DIR" ]]; then
+  TRIGGER="${RELOAD_DIR}/.dokku-dns-test"
+  touch "$TRIGGER"
+  sleep 3
+  if [[ ! -f "$TRIGGER" ]]; then
+    echo "  PASS: rndc-sidecar picked up reload trigger"
+    ((PASS++)) || true
+  else
+    echo "  FAIL: rndc-sidecar did not pick up reload trigger (is it running?)"
+    rm -f "$TRIGGER"
+    ((FAIL++)) || true
+  fi
+fi
+
+echo ""
+echo "  Results: ${PASS} passed, ${FAIL} failed"
+[[ "$FAIL" -eq 0 ]]

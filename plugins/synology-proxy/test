@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Test synology-proxy plugin installation
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+PASS=0
+FAIL=0
+
+check() {
+  local desc="$1"; shift
+  if "$@" &>/dev/null 2>&1; then
+    echo "  PASS: $desc"
+    ((PASS++)) || true
+  else
+    echo "  FAIL: $desc"
+    ((FAIL++)) || true
+  fi
+}
+
+echo "==> synology-proxy tests"
+
+CONF_DIR="/usr/local/etc/nginx/conf.d"
+NGINX_BIN="/usr/sbin/nginx"
+NGINX_PID="/run/nginx.pid"
+TEST_CONF="${CONF_DIR}/.dokku-proxy-test.conf"
+
+check "nginx conf.d directory exists" test -d "$CONF_DIR"
+check "nginx conf.d directory is writable" test -w "$CONF_DIR"
+check "nginx binary exists" test -x "$NGINX_BIN"
+check "nginx pid file exists" test -f "$NGINX_PID"
+
+# Write a test conf and verify nginx accepts it
+if [[ -d "$CONF_DIR" && -x "$NGINX_BIN" ]]; then
+  cat > "$TEST_CONF" <<'NGINX'
+# dokku-synology test conf — safe to delete
+server {
+    listen 19999;
+    server_name dokku-proxy-test.invalid;
+    return 444;
+}
+NGINX
+  check "nginx -t accepts test conf" "$NGINX_BIN" -t
+  rm -f "$TEST_CONF"
+fi
+
+echo ""
+echo "  Results: ${PASS} passed, ${FAIL} failed"
+[[ "$FAIL" -eq 0 ]]

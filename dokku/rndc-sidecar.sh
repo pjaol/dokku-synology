@@ -15,6 +15,8 @@ while true; do
   for trigger in "$RELOAD_DIR"/*; do
     [ -f "$trigger" ] || continue
     ZONE="$(basename "$trigger")"
+    # skip dotfiles (used for test probes)
+    [ "${ZONE#.}" = "$ZONE" ] || { rm -f "$trigger"; continue; }
     echo "[rndc-sidecar] reloading zone: $ZONE"
     if /usr/sbin/rndc -s 127.0.0.1 -p 953 -k "$RNDC_KEY" reload "$ZONE"; then
       echo "[rndc-sidecar] reloaded $ZONE"

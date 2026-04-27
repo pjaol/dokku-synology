@@ -1,0 +1,28 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build plugin tarballs
+        run: |
+          for plugin in plugins/*/; do
+            name="$(basename "$plugin")"
+            tar -czf "${name}.tar.gz" -C "$plugin" .
+            echo "Built ${name}.tar.gz"
+          done
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "*.tar.gz"
+          generate_release_notes: true

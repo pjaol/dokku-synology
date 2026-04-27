@@ -6,6 +6,7 @@ set -eo pipefail
 
 REPO_URL="https://github.com/pjaol/dokku-synology"
 CLONE_DIR="/var/lib/dokku-synology"
+RELEASE_URL="https://github.com/pjaol/dokku-synology/releases/latest/download"
 
 # ── helpers ────────────────────────────────────────────────────────────────────
 log()  { echo "[dokku-synology] $*"; }
@@ -74,7 +75,7 @@ for PLUGIN in synology-proxy synology-dns; do
     continue
   fi
   log "Installing $PLUGIN..."
-  docker exec dokku dokku plugin:install "$REPO_URL" "$PLUGIN"
+  docker exec dokku dokku plugin:install "${RELEASE_URL}/${PLUGIN}.tar.gz"
   log "$PLUGIN installed"
 done
 
