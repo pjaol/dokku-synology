@@ -12,10 +12,12 @@ mkdir -p "$RELOAD_DIR"
 echo "[rndc-sidecar] watching $RELOAD_DIR for zone reload triggers..."
 
 while true; do
-  for trigger in "$RELOAD_DIR"/*; do
+  for trigger in "$RELOAD_DIR"/* "$RELOAD_DIR"/.*; do
     [ -f "$trigger" ] || continue
     ZONE="$(basename "$trigger")"
-    # skip dotfiles (used for test probes)
+    # skip . and ..
+    [ "$ZONE" = "." ] || [ "$ZONE" = ".." ] && continue
+    # dotfiles are test probes — remove and skip
     [ "${ZONE#.}" = "$ZONE" ] || { rm -f "$trigger"; continue; }
     echo "[rndc-sidecar] reloading zone: $ZONE"
     if /usr/sbin/rndc -s 127.0.0.1 -p 953 -k "$RNDC_KEY" reload "$ZONE"; then
