@@ -30,17 +30,6 @@ NGINX_BIN="$(command -v nginx || true)"
 NGINX_PID="/run/nginx.pid"
 [[ -f "$NGINX_PID" ]] || die "nginx pid file not found at $NGINX_PID — is DSM nginx running?"
 
-# ── detect DNS Server ──────────────────────────────────────────────────────────
-NAMED_BASE="/var/packages/DNSServer/target/named"
-INSTALL_DNS=false
-if [[ -d "$NAMED_BASE" ]]; then
-  INSTALL_DNS=true
-  log "DNS Server package detected — will configure DNS plugin"
-else
-  warn "DNS Server package not found — DNS automation will be skipped"
-  warn "Install Synology DNS Server package and re-run to enable it"
-fi
-
 # ── clone repo ─────────────────────────────────────────────────────────────────
 log "Cloning $REPO_URL → $CLONE_DIR..."
 if [[ -d "$CLONE_DIR/.git" ]]; then
@@ -71,9 +60,6 @@ log "Dokku is running: $(docker exec dokku dokku version)"
 
 # ── install plugins into Dokku ─────────────────────────────────────────────────
 for PLUGIN in synology-proxy synology-dns; do
-  if [[ "$PLUGIN" == "synology-dns" ]] && [[ "$INSTALL_DNS" != "true" ]]; then
-    continue
-  fi
   log "Installing $PLUGIN..."
   docker exec dokku bash -c "
     curl -fsSL '${RELEASE_URL}/${PLUGIN}.tar.gz' | tar -xz -C /tmp --one-top-level=${PLUGIN} &&
@@ -115,31 +101,6 @@ if [[ -n "${SYNO_ATTACH_NETWORKS:-}" ]]; then
   log "Set SYNO_ATTACH_NETWORKS=${SYNO_ATTACH_NETWORKS}"
 fi
 
-# ── configure DNS plugin ────────────────────────────────────────────────────────
-if [[ "$INSTALL_DNS" == "true" ]]; then
-  echo ""
-  log "DNS plugin configuration"
-
-  if [[ -z "${SYNO_DNS_ZONE:-}" ]]; then
-    read -rp "  DNS zone (e.g. home.arpa): " SYNO_DNS_ZONE </dev/tty
-  fi
-
-  if [[ -z "${SYNO_NAS_IP:-}" ]]; then
-    ZONE_FILE="${NAMED_BASE}/etc/zone/master/${SYNO_DNS_ZONE}"
-    DETECTED_IP=""
-    if [[ -f "$ZONE_FILE" ]]; then
-      DETECTED_IP="$(grep -oP '\d+\.\d+\.\d+\.\d+' "$ZONE_FILE" | head -1 || true)"
-    fi
-    read -rp "  NAS IP address [${DETECTED_IP:-}]: " SYNO_NAS_IP </dev/tty
-    SYNO_NAS_IP="${SYNO_NAS_IP:-$DETECTED_IP}"
-  fi
-
-  docker exec dokku dokku config:set --global \
-    SYNO_DNS_ZONE="$SYNO_DNS_ZONE" \
-    SYNO_NAS_IP="$SYNO_NAS_IP"
-  log "Set SYNO_DNS_ZONE=$SYNO_DNS_ZONE SYNO_NAS_IP=$SYNO_NAS_IP"
-fi
-
 # ── write wildcard nginx proxy conf for Dokku apps ────────────────────────────
 DOKKU_NGINX_CONF="${DSM_CONF_DIR}/dokku-wildcard.conf"
 if [[ ! -f "$DOKKU_NGINX_CONF" ]]; then
@@ -168,27 +129,28 @@ NGINX
 fi
 
 # ── done ───────────────────────────────────────────────────────────────────────
-NAS_IP="${SYNO_NAS_IP:-<nas-ip>}"
-DNS_ZONE="${SYNO_DNS_ZONE:-home.arpa}"
-
 echo ""
 log "Installation complete!"
 echo ""
 echo "  Next steps:"
 echo ""
 echo "  1. Add your SSH public key to Dokku:"
-echo "     cat ~/.ssh/id_rsa.pub | ssh root@${NAS_IP} 'docker exec -i dokku dokku ssh-keys:add admin'"
+echo "     cat ~/.ssh/id_rsa.pub | ssh root@<nas-ip> 'docker exec -i dokku dokku ssh-keys:add admin'"
 echo ""
-echo "  2. Add a wildcard DNS entry for Dokku apps (in DSM DNS Server):"
-echo "     *.dokku.${DNS_ZONE} → ${NAS_IP}"
+echo "  2. Configure the DNS plugin:"
+echo "     docker exec dokku dokku config:set --global SYNO_DNS_ZONE=<zone> SYNO_NAS_IP=<nas-ip>"
+echo "     docker exec dokku dokku synology-dns:test"
 echo ""
-echo "  3. Deploy an app:"
-echo "     git remote add dokku ssh://dokku@${NAS_IP}:3022/<appname>"
+echo "  3. Verify the proxy plugin:"
+echo "     docker exec dokku dokku synology-proxy:test"
+echo ""
+echo "  4. Deploy an app:"
+echo "     git remote add dokku ssh://dokku@<nas-ip>:3022/<appname>"
 echo "     git push dokku main"
 echo ""
 
 if [[ -n "${SYNO_ATTACH_NETWORKS:-}" ]]; then
-  echo "  4. Attach an app to backing service networks (repeat per app):"
+  echo "  5. Attach an app to backing service networks (repeat per app):"
   for net in $SYNO_ATTACH_NETWORKS; do
     echo "     docker exec dokku dokku network:set <appname> attach-post-deploy ${net}"
   done
