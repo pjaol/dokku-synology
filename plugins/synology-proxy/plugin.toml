@@ -1,0 +1,6 @@
+[plugin]
+name = "synology-proxy"
+version = "0.1.0"
+homepage = "https://github.com/pjaol/dokku-synology-proxy"
+description = "Dokku proxy plugin for Synology DSM — writes nginx conf to /usr/local/etc/nginx/conf.d/ and reloads DSM nginx without touching the DSM UI"
+minimum_dokku_version = "0.30.0"

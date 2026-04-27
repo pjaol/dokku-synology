@@ -1,0 +1,6 @@
+[plugin]
+name = "synology-dns"
+version = "0.1.0"
+homepage = "https://github.com/pjaol/dokku-synology-dns"
+description = "Dokku DNS plugin for Synology DSM — adds/removes A records in DSM's bind9 zone file and reloads named via rndc"
+minimum_dokku_version = "0.30.0"

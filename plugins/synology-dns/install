@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+NAMED_BASE="/var/packages/DNSServer/target/named"
+ZONE_LOAD_CONF="${NAMED_BASE}/etc/zone/zone.load.conf"
+
+if [[ ! -d "$NAMED_BASE" ]]; then
+  echo "ERROR: $NAMED_BASE does not exist. Is the Synology DNS Server package installed?" >&2
+  exit 1
+fi
+
+if ! command -v rndc &>/dev/null; then
+  echo "ERROR: rndc not found. Is bind9/named running?" >&2
+  exit 1
+fi
+
+# Read configured zone and NAS IP from dokku config (global)
+SYNO_DNS_ZONE="$(dokku config:get --global SYNO_DNS_ZONE 2>/dev/null || true)"
+SYNO_NAS_IP="$(dokku config:get --global SYNO_NAS_IP 2>/dev/null || true)"
+
+if [[ -z "$SYNO_DNS_ZONE" ]]; then
+  echo "WARNING: SYNO_DNS_ZONE not set. Run: dokku config:set --global SYNO_DNS_ZONE=home.arpa SYNO_NAS_IP=<nas-ip>"
+fi
+
+echo "dokku-synology-dns: installed."
+echo "  Zone config: $ZONE_LOAD_CONF"
+echo "  SYNO_DNS_ZONE=${SYNO_DNS_ZONE:-<not set>}"
+echo "  SYNO_NAS_IP=${SYNO_NAS_IP:-<not set>}"

@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+CONF_DIR="/usr/local/etc/nginx/conf.d"
+
+if [[ ! -d "$CONF_DIR" ]]; then
+  echo "ERROR: $CONF_DIR does not exist. Is this a Synology DSM 7 host?" >&2
+  exit 1
+fi
+
+echo "dokku-synology-proxy: installed. Nginx conf drop-in dir: $CONF_DIR"

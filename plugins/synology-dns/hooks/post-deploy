@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
+
+APP="$1"
+
+SYNO_DNS_ZONE="$(dokku config:get --global SYNO_DNS_ZONE 2>/dev/null || true)"
+SYNO_NAS_IP="$(dokku config:get --global SYNO_NAS_IP 2>/dev/null || true)"
+
+if [[ -z "$SYNO_DNS_ZONE" || -z "$SYNO_NAS_IP" ]]; then
+  dokku_log_warn "synology-dns: SYNO_DNS_ZONE or SYNO_NAS_IP not set, skipping DNS update"
+  exit 0
+fi
+
+NAMED_BASE="/var/packages/DNSServer/target/named"
+ZONE_FILE="${NAMED_BASE}/etc/zone/master/${SYNO_DNS_ZONE}"
+
+if [[ ! -f "$ZONE_FILE" ]]; then
+  dokku_log_warn "synology-dns: zone file not found: $ZONE_FILE"
+  exit 1
+fi
+
+# Determine hostname(s) for this app from its vhosts
+VHOSTS="$(dokku domains:report "$APP" --domains-app-vhosts 2>/dev/null || true)"
+if [[ -z "$VHOSTS" ]]; then
+  dokku_log_warn "synology-dns: no vhosts for $APP, skipping DNS update"
+  exit 0
+fi
+
+UPDATED=0
+for VHOST in $VHOSTS; do
+  # Only handle vhosts that are subdomains of our zone
+  if [[ "$VHOST" != *".${SYNO_DNS_ZONE}" ]]; then
+    dokku_log_warn "synology-dns: $VHOST is not in zone $SYNO_DNS_ZONE, skipping"
+    continue
+  fi
+
+  FQDN="${VHOST}."
+  RECORD="${FQDN}	86400	A	${SYNO_NAS_IP}"
+
+  # Skip if record already exists
+  if grep -qF "$FQDN" "$ZONE_FILE"; then
+    dokku_log_info1 "synology-dns: $FQDN already in zone file, skipping"
+    continue
+  fi
+
+  # Bump serial (increment last number in SOA serial line)
+  sed -i "s/^\(\s*\)\([0-9]\+\)\(\s*;\s*[Ss]erial\)/echo \"\1\$((\2+1))\3\"/e" "$ZONE_FILE" 2>/dev/null || \
+    perl -i -pe 's/^(\s*)(\d+)(\s*;\s*[Ss]erial)/"$1".($2+1)."$3"/e' "$ZONE_FILE"
+
+  # Append A record before the NS record block (or at end of file)
+  if grep -q "^${SYNO_DNS_ZONE}\..*NS" "$ZONE_FILE"; then
+    sed -i "/^${SYNO_DNS_ZONE}\.\s*NS/i ${RECORD}" "$ZONE_FILE"
+  else
+    echo "$RECORD" >> "$ZONE_FILE"
+  fi
+
+  dokku_log_info1 "synology-dns: added $FQDN → $SYNO_NAS_IP in $ZONE_FILE"
+  UPDATED=1
+done
+
+if [[ "$UPDATED" -eq 1 ]]; then
+  rndc reload "$SYNO_DNS_ZONE"
+  dokku_log_info1 "synology-dns: named reloaded for zone $SYNO_DNS_ZONE"
+fi
