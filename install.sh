@@ -6,7 +6,7 @@ set -eo pipefail
 
 REPO_URL="https://github.com/pjaol/dokku-synology"
 CLONE_DIR="/var/lib/dokku-synology"
-DOKKU_DATA_DIR="/var/lib/dokku"
+DOKKU_DATA_DIR="/var/lib/dokku"  # kept for reference; container now uses a named Docker volume
 DOKKU_COMPOSE_URL="https://raw.githubusercontent.com/pjaol/dokku-synology/main/dokku/dokku-docker-compose.yaml"
 DOKKU_COMPOSE_DEST="/var/lib/dokku-synology/dokku-docker-compose.yaml"
 
@@ -52,8 +52,6 @@ else
 fi
 
 # ── start Dokku container ──────────────────────────────────────────────────────
-mkdir -p "$DOKKU_DATA_DIR"
-
 DOKKU_CONTAINER="$(docker ps -aq --filter name=dokku 2>/dev/null || true)"
 
 if [[ -n "$DOKKU_CONTAINER" ]]; then
