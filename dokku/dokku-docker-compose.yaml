@@ -14,12 +14,28 @@ services:
       - /usr/local/etc/nginx/conf.d:/usr/local/etc/nginx/conf.d
       - /bin/nginx:/usr/sbin/nginx:ro
       - /run/nginx.pid:/run/nginx.pid
-      # synology-dns plugin: write to DSM bind9 zone files and run rndc
+      # synology-dns plugin: write to DSM bind9 zone files
       - /var/packages/DNSServer/target/named:/var/packages/DNSServer/target/named
-      - /var/packages/DNSServer/target/bin/rndc:/var/packages/DNSServer/target/bin/rndc:ro
+      # shared reload trigger dir — plugin writes <zone> file, sidecar calls rndc
+      - dns-reload:/reload
     environment:
       DOKKU_HOSTNAME: dokku.home.arpa
     restart: unless-stopped
 
+  rndc-sidecar:
+    image: alpine:3.19
+    container_name: rndc-sidecar
+    network_mode: host
+    command: sh -c "apk add --no-cache bind-tools && sh /rndc-sidecar.sh"
+    volumes:
+      - dns-reload:/reload
+      - /var/packages/DNSServer/target/named/rndc.key:/rndc.key:ro
+      - ./rndc-sidecar.sh:/rndc-sidecar.sh:ro
+    restart: unless-stopped
+    entrypoint: []
+    depends_on:
+      - dokku
+
 volumes:
   dokku-data:
+  dns-reload:
