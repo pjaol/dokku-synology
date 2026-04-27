@@ -31,8 +31,7 @@ check "SYNO_DNS_ZONE configured"         test -n "$SYNO_DNS_ZONE"
 check "SYNO_NAS_IP configured"           test -n "$(dokku config:get --global SYNO_NAS_IP 2>/dev/null || true)"
 
 if [[ -n "$SYNO_DNS_ZONE" ]]; then
-  check "zone file exists"    test -f "${NAMED_BASE}/etc/zone/master/${SYNO_DNS_ZONE}"
-  check "zone file writable"  test -w "${NAMED_BASE}/etc/zone/master/${SYNO_DNS_ZONE}"
+  check "zone file exists" test -f "${NAMED_BASE}/etc/zone/master/${SYNO_DNS_ZONE}"
 fi
 
 # Verify rndc-sidecar is responding

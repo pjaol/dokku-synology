@@ -46,6 +46,9 @@ if [[ -n "$DOKKU_CONTAINER" ]]; then
 else
   log "Starting Dokku container..."
   docker compose -f "${CLONE_DIR}/dokku/dokku-docker-compose.yaml" up -d
+  # Fix dns-reload volume permissions — Synology maps container root to non-priv host uid
+  DNS_RELOAD_DATA="$(docker volume inspect dokku_dns-reload --format '{{.Mountpoint}}' 2>/dev/null || true)"
+  [[ -n "$DNS_RELOAD_DATA" ]] && chmod 777 "$DNS_RELOAD_DATA"
   log "Waiting for Dokku to be ready..."
   for i in $(seq 1 30); do
     if docker exec dokku dokku version &>/dev/null 2>&1; then
