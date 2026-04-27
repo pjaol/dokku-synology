@@ -12,11 +12,8 @@ mkdir -p "$RELOAD_DIR"
 echo "[rndc-sidecar] watching $RELOAD_DIR for zone reload triggers..."
 
 while true; do
-  for trigger in "$RELOAD_DIR"/* "$RELOAD_DIR"/.*; do
-    [ -f "$trigger" ] || continue
+  find "$RELOAD_DIR" -maxdepth 1 -type f | while read -r trigger; do
     ZONE="$(basename "$trigger")"
-    # skip . and ..
-    [ "$ZONE" = "." ] || [ "$ZONE" = ".." ] && continue
     # dotfiles are test probes — remove and skip
     [ "${ZONE#.}" = "$ZONE" ] || { rm -f "$trigger"; continue; }
     echo "[rndc-sidecar] reloading zone: $ZONE"
