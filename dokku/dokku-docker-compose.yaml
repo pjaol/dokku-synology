@@ -16,6 +16,7 @@ services:
       - /run/nginx.pid:/run/nginx.pid
       # synology-dns plugin: write to DSM bind9 zone files and run rndc
       - /var/packages/DNSServer/target/named:/var/packages/DNSServer/target/named
+      - /var/packages/DNSServer/target/bin/rndc:/var/packages/DNSServer/target/bin/rndc:ro
     environment:
       DOKKU_HOSTNAME: dokku.home.arpa
     restart: unless-stopped
