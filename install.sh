@@ -6,9 +6,6 @@ set -eo pipefail
 
 REPO_URL="https://github.com/pjaol/dokku-synology"
 CLONE_DIR="/var/lib/dokku-synology"
-DOKKU_DATA_DIR="/var/lib/dokku"  # kept for reference; container now uses a named Docker volume
-DOKKU_COMPOSE_URL="https://raw.githubusercontent.com/pjaol/dokku-synology/main/dokku/dokku-docker-compose.yaml"
-DOKKU_COMPOSE_DEST="/var/lib/dokku-synology/dokku-docker-compose.yaml"
 
 # ── helpers ────────────────────────────────────────────────────────────────────
 log()  { echo "[dokku-synology] $*"; }
@@ -72,28 +69,12 @@ docker exec dokku dokku version || die "Dokku container did not start correctly"
 log "Dokku is running: $(docker exec dokku dokku version)"
 
 # ── install plugins into Dokku ─────────────────────────────────────────────────
-log "Installing synology-proxy plugin..."
-docker exec dokku dokku plugin:install "$REPO_URL" synology-proxy 2>/dev/null || \
-  docker exec dokku bash -c "
-    mkdir -p /var/lib/dokku/plugins/available/synology-proxy
-    cp -r /dev/stdin /dev/null
-  " || true
-
-# Simpler: copy plugin dirs directly since we have the clone
 for PLUGIN in synology-proxy synology-dns; do
   if [[ "$PLUGIN" == "synology-dns" ]] && [[ "$INSTALL_DNS" != "true" ]]; then
     continue
   fi
-
-  PLUGIN_SRC="${CLONE_DIR}/plugins/${PLUGIN}"
-  PLUGIN_DEST="/var/lib/dokku/plugins/available/${PLUGIN}"
-
   log "Installing $PLUGIN..."
-  mkdir -p "${PLUGIN_DEST}/hooks"
-  cp -r "$PLUGIN_SRC"/. "$PLUGIN_DEST/"
-  chmod +x "${PLUGIN_DEST}"/hooks/* "${PLUGIN_DEST}/install" 2>/dev/null || true
-
-  docker exec dokku dokku plugin:enable "$PLUGIN" 2>/dev/null || true
+  docker exec dokku dokku plugin:install "$REPO_URL" "$PLUGIN"
   log "$PLUGIN installed"
 done
 
