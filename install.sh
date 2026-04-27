@@ -99,6 +99,37 @@ for PLUGIN in synology-proxy synology-dns; do
   log "$PLUGIN installed"
 done
 
+# ── configure attach networks ─────────────────────────────────────────────────
+# Dokku apps can attach to existing Docker networks (e.g. postgres-network, redis-network)
+# so they can reach Compose-managed backing services.
+# We detect candidate networks and let the user choose which ones to record as defaults.
+echo ""
+log "Docker network configuration"
+log "Dokku apps can be attached to existing Docker networks to reach backing services."
+log "(e.g. postgres-network, redis-network)"
+echo ""
+
+# List existing bridge/overlay networks, excluding Dokku's own and default Docker nets
+CANDIDATE_NETWORKS="$(docker network ls --format '{{.Name}}' | \
+  grep -vE '^(bridge|host|none|dokku)$' | sort || true)"
+
+if [[ -n "$CANDIDATE_NETWORKS" ]]; then
+  log "Existing Docker networks:"
+  echo "$CANDIDATE_NETWORKS" | while read -r net; do echo "    $net"; done
+  echo ""
+  read -rp "  Enter network names to make available to Dokku apps (space-separated, or leave blank to skip): " SYNO_ATTACH_NETWORKS
+else
+  log "No existing Docker networks found — skipping network configuration"
+  log "You can always attach networks later with:"
+  log "  docker exec dokku dokku network:set <app> attach-post-deploy <network>"
+  SYNO_ATTACH_NETWORKS=""
+fi
+
+if [[ -n "${SYNO_ATTACH_NETWORKS:-}" ]]; then
+  docker exec dokku dokku config:set --global SYNO_ATTACH_NETWORKS="${SYNO_ATTACH_NETWORKS}"
+  log "Set SYNO_ATTACH_NETWORKS=${SYNO_ATTACH_NETWORKS}"
+fi
+
 # ── configure DNS plugin ────────────────────────────────────────────────────────
 if [[ "$INSTALL_DNS" == "true" ]]; then
   echo ""
@@ -170,6 +201,16 @@ echo "  3. Deploy an app:"
 echo "     git remote add dokku ssh://dokku@${NAS_IP}:3022/<appname>"
 echo "     git push dokku main"
 echo ""
+
+if [[ -n "${SYNO_ATTACH_NETWORKS:-}" ]]; then
+  echo "  4. Attach an app to backing service networks (repeat per app):"
+  for net in $SYNO_ATTACH_NETWORKS; do
+    echo "     docker exec dokku dokku network:set <appname> attach-post-deploy ${net}"
+  done
+  echo "     Then redeploy: git push dokku main"
+  echo ""
+fi
+
 echo "  Dokku admin:"
 echo "     docker exec dokku dokku apps:list"
 echo "     docker exec dokku dokku logs <app>"
