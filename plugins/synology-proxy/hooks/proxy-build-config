@@ -16,19 +16,17 @@ if [[ -z "$VHOSTS" ]]; then
   exit 0
 fi
 
-# Get upstream port — Dokku assigns this
-PORT="$(plugn trigger proxy-is-enabled "$APP" 2>/dev/null | head -1 || true)"
-if [[ -z "$PORT" ]]; then
-  # Fall back: find the first mapped host port for the app's web container
-  PORT="$(docker inspect --format '{{range $p, $conf := .NetworkSettings.Ports}}{{if $conf}}{{(index $conf 0).HostPort}}{{end}}{{end}}' "$(dokku ps:inspect "$APP" 2>/dev/null | jq -r '.[] | select(.Name | test("web")) | .Id' 2>/dev/null || true)" 2>/dev/null | head -1 || true)"
-fi
+CONTAINER_NAME="${APP}.web.1"
 
-if [[ -z "$PORT" ]]; then
-  dokku_log_warn "synology-proxy: could not determine upstream port for $APP"
+CONTAINER_IP="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CONTAINER_NAME" 2>/dev/null || true)"
+CONTAINER_PORT="$(docker inspect --format '{{range .Config.Env}}{{.}}{{"\n"}}{{end}}' "$CONTAINER_NAME" 2>/dev/null | grep '^PORT=' | cut -d= -f2 || true)"
+
+if [[ -z "$CONTAINER_IP" || -z "$CONTAINER_PORT" ]]; then
+  dokku_log_warn "synology-proxy: could not determine upstream for $CONTAINER_NAME (ip=$CONTAINER_IP port=$CONTAINER_PORT)"
   exit 1
 fi
 
-UPSTREAM="127.0.0.1:${PORT}"
+UPSTREAM="${CONTAINER_IP}:${CONTAINER_PORT}"
 
 dokku_log_info1 "synology-proxy: writing nginx conf for $APP → $UPSTREAM"
 
