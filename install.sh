@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # dokku-synology installer
+# Installs Dokku (as a Docker container) + synology-proxy + synology-dns plugins
 # Usage: curl -fsSL https://raw.githubusercontent.com/pjaol/dokku-synology/main/install.sh | sudo bash
 set -eo pipefail
 
 REPO_URL="https://github.com/pjaol/dokku-synology"
-RAW_URL="https://raw.githubusercontent.com/pjaol/dokku-synology/main"
-DOKKU_PLUGIN_DIR="/var/lib/dokku/plugins/available"
+CLONE_DIR="/var/lib/dokku-synology"
+DOKKU_DATA_DIR="/var/lib/dokku"
+DOKKU_COMPOSE_URL="https://raw.githubusercontent.com/pjaol/dokku-synology/main/dokku/dokku-docker-compose.yaml"
+DOKKU_COMPOSE_DEST="/var/lib/dokku-synology/dokku-docker-compose.yaml"
 
 # ── helpers ────────────────────────────────────────────────────────────────────
 log()  { echo "[dokku-synology] $*"; }
@@ -17,89 +20,83 @@ require_cmd() { command -v "$1" &>/dev/null || die "'$1' not found — is $2 ins
 # ── preflight ──────────────────────────────────────────────────────────────────
 [[ "$(id -u)" -eq 0 ]] || die "Run as root (sudo bash install.sh)"
 
-require_cmd dokku  "Dokku"
-require_cmd nginx  "DSM nginx"
-require_cmd docker "Docker"
+require_cmd docker "Docker (DSM Container Manager)"
+require_cmd git    "git"
 
 DSM_CONF_DIR="/usr/local/etc/nginx/conf.d"
 [[ -d "$DSM_CONF_DIR" ]] || die "$DSM_CONF_DIR not found — is this Synology DSM 7?"
 
-# ── menu ───────────────────────────────────────────────────────────────────────
-INSTALL_PROXY=true
-INSTALL_DNS=false
+NGINX_BIN="$(command -v nginx || true)"
+[[ -n "$NGINX_BIN" ]] || die "nginx not found on host"
 
+NGINX_PID="/run/nginx.pid"
+[[ -f "$NGINX_PID" ]] || die "nginx pid file not found at $NGINX_PID — is DSM nginx running?"
+
+# ── detect DNS Server ──────────────────────────────────────────────────────────
 NAMED_BASE="/var/packages/DNSServer/target/named"
+INSTALL_DNS=false
 if [[ -d "$NAMED_BASE" ]] && command -v rndc &>/dev/null; then
   INSTALL_DNS=true
-  log "DNS Server package detected — will install both plugins"
+  log "DNS Server package detected — will configure DNS plugin"
 else
-  warn "DNS Server package not found — installing proxy plugin only"
-  warn "Install Synology DNS Server package and re-run to enable DNS automation"
+  warn "DNS Server package not found — DNS automation will be skipped"
+  warn "Install Synology DNS Server package and re-run to enable it"
 fi
 
-# ── install proxy plugin ───────────────────────────────────────────────────────
-install_plugin() {
-  local NAME="$1"
-  local SRC="plugins/${NAME}"
-  local DEST="${DOKKU_PLUGIN_DIR}/${NAME}"
-
-  log "Installing $NAME..."
-
-  if [[ -d "$DEST" ]]; then
-    log "$NAME already installed — updating"
-    rm -rf "$DEST"
-  fi
-
-  mkdir -p "$DEST/hooks"
-
-  # Download each file
-  for f in plugin.toml install; do
-    curl -fsSL "${RAW_URL}/${SRC}/${f}" -o "${DEST}/${f}"
-  done
-
-  for hook in $(curl -fsSL "${RAW_URL}/${SRC}/hooks/" 2>/dev/null | grep -oP '(?<=href=")[^"]*(?=")' | grep -v '^\.' || true); do
-    curl -fsSL "${RAW_URL}/${SRC}/hooks/${hook}" -o "${DEST}/hooks/${hook}"
-    chmod +x "${DEST}/hooks/${hook}"
-  done
-
-  chmod +x "${DEST}/install" 2>/dev/null || true
-
-  dokku plugin:enable "$NAME" 2>/dev/null || true
-  log "$NAME installed"
-}
-
-# ── alternative: clone and symlink ─────────────────────────────────────────────
-CLONE_DIR="/var/lib/dokku/plugins/src/dokku-synology"
-
-log "Cloning $REPO_URL..."
-if [[ -d "$CLONE_DIR" ]]; then
+# ── clone repo ─────────────────────────────────────────────────────────────────
+log "Cloning $REPO_URL → $CLONE_DIR..."
+if [[ -d "$CLONE_DIR/.git" ]]; then
   git -C "$CLONE_DIR" pull --ff-only
 else
   git clone --depth 1 "$REPO_URL" "$CLONE_DIR"
 fi
 
-# Symlink each plugin into Dokku's available plugins dir
-for PLUGIN in synology-proxy synology-dns; do
-  SRC="${CLONE_DIR}/plugins/${PLUGIN}"
-  DEST="${DOKKU_PLUGIN_DIR}/${PLUGIN}"
+# ── start Dokku container ──────────────────────────────────────────────────────
+mkdir -p "$DOKKU_DATA_DIR"
 
+DOKKU_CONTAINER="$(docker ps -aq --filter name=dokku 2>/dev/null || true)"
+
+if [[ -n "$DOKKU_CONTAINER" ]]; then
+  log "Dokku container already exists — skipping start"
+else
+  log "Starting Dokku container..."
+  docker compose -f "${CLONE_DIR}/dokku/dokku-docker-compose.yaml" up -d
+  log "Waiting for Dokku to be ready..."
+  for i in $(seq 1 30); do
+    if docker exec dokku dokku version &>/dev/null 2>&1; then
+      break
+    fi
+    sleep 2
+  done
+fi
+
+docker exec dokku dokku version || die "Dokku container did not start correctly"
+log "Dokku is running: $(docker exec dokku dokku version)"
+
+# ── install plugins into Dokku ─────────────────────────────────────────────────
+log "Installing synology-proxy plugin..."
+docker exec dokku dokku plugin:install "$REPO_URL" synology-proxy 2>/dev/null || \
+  docker exec dokku bash -c "
+    mkdir -p /var/lib/dokku/plugins/available/synology-proxy
+    cp -r /dev/stdin /dev/null
+  " || true
+
+# Simpler: copy plugin dirs directly since we have the clone
+for PLUGIN in synology-proxy synology-dns; do
   if [[ "$PLUGIN" == "synology-dns" ]] && [[ "$INSTALL_DNS" != "true" ]]; then
     continue
   fi
 
-  [[ -d "$SRC" ]] || { warn "Plugin source not found: $SRC"; continue; }
+  PLUGIN_SRC="${CLONE_DIR}/plugins/${PLUGIN}"
+  PLUGIN_DEST="/var/lib/dokku/plugins/available/${PLUGIN}"
 
-  if [[ -L "$DEST" ]]; then
-    rm "$DEST"
-  elif [[ -d "$DEST" ]]; then
-    rm -rf "$DEST"
-  fi
+  log "Installing $PLUGIN..."
+  mkdir -p "${PLUGIN_DEST}/hooks"
+  cp -r "$PLUGIN_SRC"/. "$PLUGIN_DEST/"
+  chmod +x "${PLUGIN_DEST}"/hooks/* "${PLUGIN_DEST}/install" 2>/dev/null || true
 
-  ln -s "$SRC" "$DEST"
-  chmod +x "$SRC"/hooks/* "$SRC/install" 2>/dev/null || true
-
-  dokku plugin:enable "$PLUGIN"
-  log "Enabled $PLUGIN"
+  docker exec dokku dokku plugin:enable "$PLUGIN" 2>/dev/null || true
+  log "$PLUGIN installed"
 done
 
 # ── configure DNS plugin ────────────────────────────────────────────────────────
@@ -110,34 +107,69 @@ if [[ "$INSTALL_DNS" == "true" ]]; then
   if [[ -z "${SYNO_DNS_ZONE:-}" ]]; then
     read -rp "  DNS zone (e.g. home.arpa): " SYNO_DNS_ZONE
   fi
+
   if [[ -z "${SYNO_NAS_IP:-}" ]]; then
-    # Auto-detect NAS IP from the zone file if possible
     ZONE_FILE="${NAMED_BASE}/etc/zone/master/${SYNO_DNS_ZONE}"
     DETECTED_IP=""
     if [[ -f "$ZONE_FILE" ]]; then
-      DETECTED_IP="$(grep -oP '(?<=A\s{1,20})\d+\.\d+\.\d+\.\d+' "$ZONE_FILE" | head -1 || true)"
+      DETECTED_IP="$(grep -oP '\d+\.\d+\.\d+\.\d+' "$ZONE_FILE" | head -1 || true)"
     fi
-    read -rp "  NAS IP address [${DETECTED_IP:-192.168.0.x}]: " SYNO_NAS_IP
+    read -rp "  NAS IP address [${DETECTED_IP:-}]: " SYNO_NAS_IP
     SYNO_NAS_IP="${SYNO_NAS_IP:-$DETECTED_IP}"
   fi
 
-  dokku config:set --global SYNO_DNS_ZONE="$SYNO_DNS_ZONE"
-  dokku config:set --global SYNO_NAS_IP="$SYNO_NAS_IP"
+  docker exec dokku dokku config:set --global \
+    SYNO_DNS_ZONE="$SYNO_DNS_ZONE" \
+    SYNO_NAS_IP="$SYNO_NAS_IP"
   log "Set SYNO_DNS_ZONE=$SYNO_DNS_ZONE SYNO_NAS_IP=$SYNO_NAS_IP"
 fi
 
+# ── write wildcard nginx proxy conf for Dokku apps ────────────────────────────
+DOKKU_NGINX_CONF="${DSM_CONF_DIR}/dokku-wildcard.conf"
+if [[ ! -f "$DOKKU_NGINX_CONF" ]]; then
+  log "Writing wildcard nginx proxy conf for Dokku apps..."
+  cat > "$DOKKU_NGINX_CONF" <<'NGINX'
+# Routes *.dokku.home.arpa → Dokku container on port 8080
+# Managed by dokku-synology — do not edit manually
+server {
+    listen 80;
+    server_name ~^.+\.dokku\..+$;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+NGINX
+  "$NGINX_BIN" -s reload
+  log "nginx reloaded with Dokku wildcard conf"
+fi
+
 # ── done ───────────────────────────────────────────────────────────────────────
+NAS_IP="${SYNO_NAS_IP:-<nas-ip>}"
+DNS_ZONE="${SYNO_DNS_ZONE:-home.arpa}"
+
 echo ""
 log "Installation complete!"
 echo ""
 echo "  Next steps:"
-echo "  1. Move DSM web UI off port 80/443 if you haven't already:"
-echo "     DSM → Control Panel → Login Portal → change HTTP to 8880, HTTPS to 8443"
 echo ""
-echo "  2. Set your app's proxy type:"
-echo "     dokku proxy:set <app> synology"
+echo "  1. Add your SSH public key to Dokku:"
+echo "     cat ~/.ssh/id_rsa.pub | ssh root@${NAS_IP} 'docker exec -i dokku dokku ssh-keys:add admin'"
 echo ""
-echo "  3. Set a domain:"
-echo "     dokku domains:set <app> myapp.${SYNO_DNS_ZONE:-home.arpa}"
+echo "  2. Add a wildcard DNS entry for Dokku apps (in DSM DNS Server):"
+echo "     *.dokku.${DNS_ZONE} → ${NAS_IP}"
 echo ""
-echo "  4. Deploy — nginx conf and DNS record are managed automatically."
+echo "  3. Deploy an app:"
+echo "     git remote add dokku ssh://dokku@${NAS_IP}:3022/<appname>"
+echo "     git push dokku main"
+echo ""
+echo "  Dokku admin:"
+echo "     docker exec dokku dokku apps:list"
+echo "     docker exec dokku dokku logs <app>"

@@ -1,21 +1,22 @@
 # dokku-synology
 
-Dokku plugins that integrate with Synology DSM's native nginx and bind9 DNS — so you get a full PaaS deploy workflow (`git push` → live app with DNS + reverse proxy) without fighting DSM's web UI.
+Run [Dokku](https://dokku.com) on a Synology NAS — `git push` deploys with automatic DNS and reverse proxy, integrated directly into DSM's native nginx and bind9 DNS. No fighting DSM's web UI.
 
 ## What's included
 
-| Plugin | What it does |
+| Component | What it does |
 |---|---|
-| `synology-proxy` | Writes nginx server blocks into DSM's drop-in conf dir (`/usr/local/etc/nginx/conf.d/`) and reloads nginx on deploy/destroy |
-| `synology-dns` | Adds/removes A records in DSM DNS Server's bind9 zone file and reloads named via `rndc` on deploy/destroy |
+| `dokku/dokku-docker-compose.yaml` | Runs Dokku as a Docker container on the NAS |
+| `plugins/synology-proxy` | On deploy: writes nginx server block to DSM's drop-in conf dir and reloads nginx. On destroy: removes it. |
+| `plugins/synology-dns` | On deploy: adds A record to DSM bind9 zone file and reloads named. On destroy: removes it. |
 
-Both plugins use the same stable, DSM-internal mechanisms that Synology's own packages use. No UI scraping. No unofficial APIs. Survives DSM updates.
+Both plugins use the same stable drop-in mechanisms Synology's own packages use. No UI scraping, no unofficial APIs, survives DSM updates.
 
 ## Requirements
 
-- Synology DSM 7.x (tested on DS920+, DSM 7.2)
-- Dokku 0.30.0+ installed on the NAS
-- Synology **DNS Server** package (optional — only needed for the DNS plugin)
+- Synology DSM 7.x (tested on DS920+, DSM 7.2, Intel Celeron J4125)
+- Docker / Container Manager installed on the NAS
+- Synology **DNS Server** package (optional — enables the DNS plugin)
 
 ## One-line install
 
@@ -25,82 +26,108 @@ Run this on your NAS as root:
 curl -fsSL https://raw.githubusercontent.com/pjaol/dokku-synology/main/install.sh | sudo bash
 ```
 
-The installer:
-1. Clones this repo to `/var/lib/dokku/plugins/src/dokku-synology`
-2. Symlinks both plugins into Dokku's plugin directory
-3. Auto-detects whether DNS Server is installed
-4. Prompts for your zone name and NAS IP if the DNS plugin is enabled
+This will:
+1. Clone this repo to `/var/lib/dokku-synology`
+2. Start the Dokku Docker container
+3. Install and enable both plugins inside Dokku
+4. Write a wildcard nginx proxy conf so `*.dokku.home.arpa` routes to Dokku
+5. Prompt for your DNS zone and NAS IP if the DNS Server package is detected
 
-## One-time DSM setup
+## Architecture
 
-Move DSM's web UI off ports 80/443 so Dokku can own them:
+```
+git push :3022 ──► Dokku container
+                        │
+                        ├─ builds app image (from your registry or Dockerfile)
+                        ├─ runs app container
+                        ├─ synology-proxy: writes /usr/local/etc/nginx/conf.d/dokku-<app>.conf
+                        └─ synology-dns:   adds <app>.home.arpa A record
 
-**DSM → Control Panel → Login Portal → DSM tab**
-- HTTP port: `8880`
-- HTTPS port: `8443`
-
-After this, access DSM at `http://nas-ip:8880`. This is a one-time change.
-
-## Manual installation
-
-```bash
-# Proxy plugin only
-dokku plugin:install https://github.com/pjaol/dokku-synology.git synology-proxy --committish main
-
-# DNS plugin (requires Synology DNS Server package)
-dokku plugin:install https://github.com/pjaol/dokku-synology.git synology-dns --committish main
-
-# Configure DNS plugin
-dokku config:set --global SYNO_DNS_ZONE=home.arpa
-dokku config:set --global SYNO_NAS_IP=192.168.0.74
+Browser ──► DSM nginx :80/:443
+                │
+                ├─ *.dokku.home.arpa ──► localhost:8080 ──► Dokku nginx ──► app
+                └─ other *.home.arpa ──► existing DSM reverse proxy rules
 ```
 
-## Usage
+Dokku's internal nginx runs on port 8080 (mapped from the container). DSM's nginx fronts everything on 80/443 and stays in control of TLS.
+
+## After install: one-time steps
+
+**1. Add your SSH public key:**
+```bash
+cat ~/.ssh/id_rsa.pub | ssh root@<nas-ip> 'docker exec -i dokku dokku ssh-keys:add admin'
+```
+
+**2. Add wildcard DNS for Dokku apps** (in DSM DNS Server UI or directly):
+```bash
+# Append to zone file and reload
+echo '*.dokku.home.arpa.  86400  A  192.168.0.74' >> \
+  /var/packages/DNSServer/target/named/etc/zone/master/home.arpa
+rndc reload home.arpa
+```
+
+## Deploy an app
 
 ```bash
-# Create and configure an app
-dokku apps:create myapp
-dokku proxy:set myapp synology
-dokku domains:set myapp myapp.home.arpa
-
-# Set environment variables, link databases, etc.
-dokku config:set myapp KEY=value
-
-# Deploy
-git remote add dokku dokku@nas:myapp
+# On your dev machine
+git remote add dokku ssh://dokku@<nas-ip>:3022/myapp
 git push dokku main
 ```
 
-On deploy, the plugins automatically:
-- Add `myapp.home.arpa → <NAS IP>` to the DNS zone (if DNS plugin is enabled)
-- Write `/usr/local/etc/nginx/conf.d/dokku-myapp.conf` routing `myapp.home.arpa` to the container
-- Reload both nginx and named
+Dokku builds the app, starts it, and the plugins automatically:
+- Add `myapp.home.arpa → <NAS IP>` to DNS
+- Write an nginx vhost conf routing `myapp.home.arpa` to the container
+- Reload nginx and named
 
-On `dokku apps:destroy myapp`, both the DNS record and nginx conf are removed.
+On `dokku apps:destroy myapp`, both are removed.
 
-## How it works
+## Managing apps
 
-### Proxy plugin
+```bash
+docker exec dokku dokku apps:list
+docker exec dokku dokku logs myapp
+docker exec dokku dokku config:set myapp KEY=value
+docker exec dokku dokku ps:report myapp
+```
 
-DSM 7 nginx loads `include /usr/local/etc/nginx/conf.d/*.conf;` — the same mechanism Synology uses for its own packages (Photos, Drive, etc.). The proxy plugin writes one file per app there and calls `nginx -s reload`. DSM's UI-managed `server.ReverseProxy.conf` is never touched.
+## How the plugins work
 
-### DNS plugin
+### synology-proxy
 
-DSM's DNS Server package runs a real bind9 instance. Zone files live at:
+DSM 7 nginx loads `include /usr/local/etc/nginx/conf.d/*.conf;` — the same drop-in mechanism Synology uses for Photos, Drive, and other packages. The proxy plugin writes one file per Dokku app there and signals nginx via its pid file. DSM's `server.ReverseProxy.conf` is never touched.
+
+The Dokku container mounts:
+- `/usr/local/etc/nginx/conf.d` — to write confs
+- `/bin/nginx` → `/usr/sbin/nginx` — to call `nginx -s reload`
+- `/run/nginx.pid` — so nginx signal delivery works
+
+### synology-dns
+
+DSM's DNS Server package is a real bind9 instance. The plugin writes directly to the zone file at:
 ```
 /var/packages/DNSServer/target/named/etc/zone/master/<zone>
 ```
-The DNS plugin appends/removes A records directly and calls `rndc reload <zone>`. The SOA serial is bumped on every change.
+It bumps the SOA serial and calls `rndc reload <zone>`. The named directory is mounted into the Dokku container.
 
 ## Configuration reference
 
 | Variable | Scope | Description |
 |---|---|---|
 | `SYNO_DNS_ZONE` | global | bind9 zone name (e.g. `home.arpa`) |
-| `SYNO_NAS_IP` | global | IP all app A records resolve to |
+| `SYNO_NAS_IP` | global | IP all Dokku app A records resolve to |
+
+Set via: `docker exec dokku dokku config:set --global SYNO_DNS_ZONE=home.arpa SYNO_NAS_IP=192.168.0.74`
+
+## Manual plugin install (if Dokku is already running)
+
+```bash
+docker exec dokku dokku plugin:install https://github.com/pjaol/dokku-synology.git synology-proxy
+docker exec dokku dokku plugin:install https://github.com/pjaol/dokku-synology.git synology-dns
+docker exec dokku dokku config:set --global SYNO_DNS_ZONE=home.arpa SYNO_NAS_IP=192.168.0.74
+```
 
 ## Tested on
 
-- Synology DS920+ · DSM 7.2 · Intel Celeron J4125
+- Synology DS920+ · DSM 7.2 · Intel Celeron J4125 · Docker 24.0.2
 - DNS Server 2.2.3
-- Dokku 0.34.x
+- Dokku 0.37.10
