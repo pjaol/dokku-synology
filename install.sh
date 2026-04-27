@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # dokku-synology installer
 # Installs Dokku (as a Docker container) + synology-proxy + synology-dns plugins
-# Usage: sudo bash <(curl -fsSL https://raw.githubusercontent.com/pjaol/dokku-synology/main/install.sh)
+# Usage: curl -fsSL https://raw.githubusercontent.com/pjaol/dokku-synology/main/install.sh -o /tmp/install.sh && sudo bash /tmp/install.sh
 set -eo pipefail
 
 REPO_URL="https://github.com/pjaol/dokku-synology"

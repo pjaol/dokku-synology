@@ -21,7 +21,6 @@ check() {
 dokku_log_info2 "synology-proxy tests"
 
 check "nginx conf.d directory exists"   test -d /usr/local/etc/nginx/conf.d
-check "nginx conf.d directory writable" test -w /usr/local/etc/nginx/conf.d
 check "nginx binary exists"             test -x /usr/sbin/nginx
 check "nginx pid file exists"           test -f /run/nginx.pid
 

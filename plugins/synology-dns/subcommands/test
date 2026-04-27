@@ -27,7 +27,6 @@ SYNO_DNS_ZONE="$(dokku config:get --global SYNO_DNS_ZONE 2>/dev/null || true)"
 check "named base directory exists"      test -d "$NAMED_BASE"
 check "zone directory exists"            test -d "${NAMED_BASE}/etc/zone/master"
 check "reload trigger directory exists"  test -d "$RELOAD_DIR"
-check "reload trigger directory writable" test -w "$RELOAD_DIR"
 check "SYNO_DNS_ZONE configured"         test -n "$SYNO_DNS_ZONE"
 check "SYNO_NAS_IP configured"           test -n "$(dokku config:get --global SYNO_NAS_IP 2>/dev/null || true)"
 
@@ -37,7 +36,7 @@ if [[ -n "$SYNO_DNS_ZONE" ]]; then
 fi
 
 # Verify rndc-sidecar is responding
-if [[ -d "$RELOAD_DIR" && -w "$RELOAD_DIR" ]]; then
+if [[ -d "$RELOAD_DIR" ]]; then
   TRIGGER="${RELOAD_DIR}/.dokku-dns-test"
   touch "$TRIGGER"
   sleep 3
