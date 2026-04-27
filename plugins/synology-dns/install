@@ -10,7 +10,8 @@ if [[ ! -d "$NAMED_BASE" ]]; then
   exit 1
 fi
 
-if ! command -v rndc &>/dev/null; then
+RNDC_BIN="${RNDC_BIN:-/var/packages/DNSServer/target/bin/rndc}"
+if ! command -v rndc &>/dev/null && [[ ! -x "$RNDC_BIN" ]]; then
   echo "ERROR: rndc not found. Is bind9/named running?" >&2
   exit 1
 fi
