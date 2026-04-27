@@ -51,7 +51,7 @@ for VHOST in $VHOSTS; do
 
   # Append A record before the NS record block (or at end of file)
   if grep -q "^${SYNO_DNS_ZONE}\..*NS" "$ZONE_FILE"; then
-    sed -i "/^${SYNO_DNS_ZONE}\.\s*NS/i ${RECORD}" "$ZONE_FILE"
+    sed -i "/^${SYNO_DNS_ZONE}\.[[:space:]]*NS/i ${RECORD}" "$ZONE_FILE"
   else
     echo "$RECORD" >> "$ZONE_FILE"
   fi

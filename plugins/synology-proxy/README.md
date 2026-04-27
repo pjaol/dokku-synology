@@ -1,11 +1,13 @@
-# dokku-synology-proxy
+# synology-proxy
 
-A [Dokku](https://dokku.com) proxy plugin for Synology DSM. Instead of using Dokku's built-in nginx or requiring you to fight DSM for port 80/443, this plugin writes nginx server blocks directly into DSM's drop-in conf directory (`/usr/local/etc/nginx/conf.d/`) and reloads DSM's nginx — the same mechanism DSM itself uses for packages like Synology Photos and SynologyDrive.
+A Dokku proxy plugin for Synology DSM. Writes nginx server blocks directly into DSM's drop-in conf directory (`/usr/local/etc/nginx/conf.d/`) and reloads DSM's nginx — the same mechanism DSM itself uses for packages like Synology Photos and SynologyDrive.
 
 ## How it works
 
-- On `proxy-build-config` (after deploy): writes `/usr/local/etc/nginx/conf.d/dokku-<appname>.conf` and runs `nginx -s reload`
+- On `proxy-build-config` (after deploy): writes `/usr/local/etc/nginx/conf.d/dokku-<appname>.conf` and signals nginx to reload
 - On `proxy-clear-config` (on destroy/disable): removes the conf file and reloads nginx
+
+DSM nginx proxies `*.dokku.<zone>` → Dokku container on port 8080. The per-app conf inside Dokku routes by hostname to the app container.
 
 No DSM UI interaction. No fragile API scraping. Survives DSM updates.
 
@@ -13,42 +15,44 @@ No DSM UI interaction. No fragile API scraping. Survives DSM updates.
 
 - Synology DSM 7.x
 - Dokku 0.30.0+
-- Dokku running on the NAS host (or in a container with host network access)
+- Installed via [dokku-synology](https://github.com/pjaol/dokku-synology)
 
 ## Installation
 
-```bash
-dokku plugin:install https://github.com/pjaol/dokku-synology-proxy.git synology-proxy
-```
-
-Then set it as the proxy for your app:
+Installed automatically by the [dokku-synology](https://github.com/pjaol/dokku-synology) installer. To install manually:
 
 ```bash
-dokku proxy:set <app> synology
+docker exec dokku bash -c "
+  curl -fsSL https://github.com/pjaol/dokku-synology/releases/latest/download/synology-proxy.tar.gz \
+    | tar -xz -C /tmp --one-top-level=synology-proxy &&
+  cp -r /tmp/synology-proxy /var/lib/dokku/plugins/available/synology-proxy &&
+  dokku plugin:enable synology-proxy &&
+  bash /var/lib/dokku/plugins/available/synology-proxy/install
+"
+docker exec dokku dokku proxy:set --global synology
 ```
-
-## DSM port setup (one-time)
-
-DSM uses ports 80 and 443 by default for its own web UI. Move DSM off those ports so Dokku can own them:
-
-DSM → Control Panel → Login Portal → DSM tab → change HTTP port to `8880`, HTTPS to `8443`.
-
-After this change, access DSM at `http://nas-ip:8880`.
 
 ## Configuration
 
-No per-plugin configuration needed. The plugin reads vhosts from `dokku domains` automatically.
-
-Ensure your app has a domain set:
+The installer sets the global proxy type automatically:
 
 ```bash
-dokku domains:set <app> myapp.home.arpa
+docker exec dokku dokku proxy:set --global synology
 ```
 
-## Pair with dokku-synology-dns
+No per-app configuration needed. The plugin reads vhosts from `dokku domains` automatically.
 
-Use [dokku-synology-dns](https://github.com/pjaol/dokku-synology-dns) to automatically create DNS records in DSM's bind9 zone when you deploy.
+## Verify
+
+```bash
+docker exec dokku dokku synology-proxy:test
+```
+
+## Pair with synology-dns
+
+Use the [synology-dns](../synology-dns/) plugin to automatically create DNS records in DSM's bind9 zone on deploy.
 
 ## Tested on
 
-- Synology DS920+ (DSM 7.2, Intel Celeron J4125)
+- Synology DS920+ · DSM 7.2 · Intel Celeron J4125
+- Dokku 0.37.10

@@ -73,6 +73,10 @@ for PLUGIN in synology-proxy synology-dns; do
   log "$PLUGIN installed"
 done
 
+# ── set global proxy type to synology ────────────────────────────────────────
+log "Setting global proxy type to synology..."
+docker exec dokku dokku proxy:set --global synology
+
 # ── configure attach networks ─────────────────────────────────────────────────
 # Dokku apps can attach to existing Docker networks (e.g. postgres-network, redis-network)
 # so they can reach Compose-managed backing services.
