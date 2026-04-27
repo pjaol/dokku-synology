@@ -10,10 +10,8 @@ if [[ ! -d "$NAMED_BASE" ]]; then
   exit 1
 fi
 
-RNDC_BIN="${RNDC_BIN:-/var/packages/DNSServer/target/bin/rndc}"
-if ! command -v rndc &>/dev/null && [[ ! -x "$RNDC_BIN" ]]; then
-  echo "ERROR: rndc not found. Is bind9/named running?" >&2
-  exit 1
+if [[ ! -d "/reload" ]]; then
+  echo "WARNING: /reload directory not found — is the rndc-sidecar running and dns-reload volume mounted?"
 fi
 
 # Read configured zone and NAS IP from dokku config (global)

@@ -31,9 +31,8 @@ NGINX_PID="/run/nginx.pid"
 
 # ── detect DNS Server ──────────────────────────────────────────────────────────
 NAMED_BASE="/var/packages/DNSServer/target/named"
-RNDC_BIN="${RNDC_BIN:-/var/packages/DNSServer/target/bin/rndc}"
 INSTALL_DNS=false
-if [[ -d "$NAMED_BASE" ]] && [[ -x "$RNDC_BIN" ]]; then
+if [[ -d "$NAMED_BASE" ]]; then
   INSTALL_DNS=true
   log "DNS Server package detected — will configure DNS plugin"
 else

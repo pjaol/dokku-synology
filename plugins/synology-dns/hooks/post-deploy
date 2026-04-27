@@ -61,8 +61,7 @@ for VHOST in $VHOSTS; do
 done
 
 if [[ "$UPDATED" -eq 1 ]]; then
-  RNDC_BIN="${RNDC_BIN:-/var/packages/DNSServer/target/bin/rndc}"
-  RNDC="${RNDC_BIN:-rndc}"
-  "$RNDC" reload "$SYNO_DNS_ZONE"
-  dokku_log_info1 "synology-dns: named reloaded for zone $SYNO_DNS_ZONE"
+  # Signal rndc-sidecar to reload named (sidecar has host network access to 127.0.0.1:953)
+  touch "/reload/${SYNO_DNS_ZONE}"
+  dokku_log_info1 "synology-dns: triggered named reload for zone $SYNO_DNS_ZONE"
 fi
