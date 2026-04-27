@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
+
+PASS=0
+FAIL=0
+
+check() {
+  local desc="$1"; shift
+  if "$@" &>/dev/null 2>&1; then
+    dokku_log_info1 "PASS: $desc"
+    ((PASS++)) || true
+  else
+    dokku_log_warn "FAIL: $desc"
+    ((FAIL++)) || true
+  fi
+}
+
+dokku_log_info2 "synology-proxy tests"
+
+check "nginx conf.d directory exists"   test -d /usr/local/etc/nginx/conf.d
+check "nginx conf.d directory writable" test -w /usr/local/etc/nginx/conf.d
+check "nginx binary exists"             test -x /usr/sbin/nginx
+check "nginx pid file exists"           test -f /run/nginx.pid
+
+dokku_log_info1 "Results: ${PASS} passed, ${FAIL} failed"
+[[ "$FAIL" -eq 0 ]]
