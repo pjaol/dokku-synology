@@ -75,7 +75,7 @@ for PLUGIN in synology-proxy synology-dns; do
     continue
   fi
   log "Installing $PLUGIN..."
-  docker exec dokku dokku plugin:install "${RELEASE_URL}/${PLUGIN}.tar.gz"
+  docker exec dokku dokku plugin:install "${RELEASE_URL}/${PLUGIN}.tar.gz" --name "$PLUGIN"
   log "$PLUGIN installed"
 done
 
@@ -97,7 +97,7 @@ if [[ -n "$CANDIDATE_NETWORKS" ]]; then
   log "Existing Docker networks:"
   echo "$CANDIDATE_NETWORKS" | while read -r net; do echo "    $net"; done
   echo ""
-  read -rp "  Enter network names to make available to Dokku apps (space-separated, or leave blank to skip): " SYNO_ATTACH_NETWORKS
+  read -rp "  Enter network names to make available to Dokku apps (space-separated, or leave blank to skip): " SYNO_ATTACH_NETWORKS </dev/tty
 else
   log "No existing Docker networks found — skipping network configuration"
   log "You can always attach networks later with:"
@@ -116,7 +116,7 @@ if [[ "$INSTALL_DNS" == "true" ]]; then
   log "DNS plugin configuration"
 
   if [[ -z "${SYNO_DNS_ZONE:-}" ]]; then
-    read -rp "  DNS zone (e.g. home.arpa): " SYNO_DNS_ZONE
+    read -rp "  DNS zone (e.g. home.arpa): " SYNO_DNS_ZONE </dev/tty
   fi
 
   if [[ -z "${SYNO_NAS_IP:-}" ]]; then
@@ -125,7 +125,7 @@ if [[ "$INSTALL_DNS" == "true" ]]; then
     if [[ -f "$ZONE_FILE" ]]; then
       DETECTED_IP="$(grep -oP '\d+\.\d+\.\d+\.\d+' "$ZONE_FILE" | head -1 || true)"
     fi
-    read -rp "  NAS IP address [${DETECTED_IP:-}]: " SYNO_NAS_IP
+    read -rp "  NAS IP address [${DETECTED_IP:-}]: " SYNO_NAS_IP </dev/tty
     SYNO_NAS_IP="${SYNO_NAS_IP:-$DETECTED_IP}"
   fi
 
