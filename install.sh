@@ -75,7 +75,12 @@ for PLUGIN in synology-proxy synology-dns; do
     continue
   fi
   log "Installing $PLUGIN..."
-  docker exec dokku dokku plugin:install "${RELEASE_URL}/${PLUGIN}.tar.gz" --name "$PLUGIN"
+  docker exec dokku bash -c "
+    curl -fsSL '${RELEASE_URL}/${PLUGIN}.tar.gz' | tar -xz -C /tmp --one-top-level=${PLUGIN} &&
+    cp -r /tmp/${PLUGIN} /var/lib/dokku/plugins/available/${PLUGIN} &&
+    dokku plugin:enable ${PLUGIN} &&
+    bash /var/lib/dokku/plugins/available/${PLUGIN}/install
+  "
   log "$PLUGIN installed"
 done
 
