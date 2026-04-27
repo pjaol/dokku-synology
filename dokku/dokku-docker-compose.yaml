@@ -26,7 +26,7 @@ services:
     image: alpine:3.19
     container_name: rndc-sidecar
     network_mode: host
-    command: sh -c "apk add --no-cache bind-tools && sh /rndc-sidecar.sh"
+    command: sh -c "apk add --no-cache bind && sh /rndc-sidecar.sh"
     volumes:
       - dns-reload:/reload
       - /var/packages/DNSServer/target/named/rndc.key:/rndc.key:ro

@@ -16,7 +16,7 @@ while true; do
     [ -f "$trigger" ] || continue
     ZONE="$(basename "$trigger")"
     echo "[rndc-sidecar] reloading zone: $ZONE"
-    if rndc -s 127.0.0.1 -p 953 -k "$RNDC_KEY" reload "$ZONE"; then
+    if /usr/sbin/rndc -s 127.0.0.1 -p 953 -k "$RNDC_KEY" reload "$ZONE"; then
       echo "[rndc-sidecar] reloaded $ZONE"
     else
       echo "[rndc-sidecar] ERROR: failed to reload $ZONE" >&2
