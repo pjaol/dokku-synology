@@ -82,16 +82,31 @@ else
   log "Ensure your router forwards *.dokku.<zone> queries to this NAS"
 fi
 
+# ── generate self-signed wildcard cert ────────────────────────────────────────
+CERT_DIR="/etc/nginx"
+CERT_FILE="${CERT_DIR}/dokku-wildcard.crt"
+KEY_FILE="${CERT_DIR}/dokku-wildcard.key"
+if [[ ! -f "$CERT_FILE" ]]; then
+  log "Generating self-signed wildcard cert for *.dokku.<zone>..."
+  openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+    -keyout "$KEY_FILE" -out "$CERT_FILE" \
+    -subj "/CN=*.dokku.home.arpa" \
+    -addext "subjectAltName=DNS:*.dokku.home.arpa" 2>/dev/null
+  log "Cert written to $CERT_FILE"
+else
+  log "Wildcard cert already exists — skipping"
+fi
+
 # ── write wildcard nginx conf ──────────────────────────────────────────────────
 WILDCARD_CONF="${SITES_ENABLED}/dokku-wildcard.conf"
 if [[ ! -f "$WILDCARD_CONF" ]]; then
   log "Writing wildcard nginx conf → $WILDCARD_CONF"
-  cat > "$WILDCARD_CONF" <<'NGINX'
-# Routes *.dokku.<zone> → Dokku container (port 8080)
+  cat > "$WILDCARD_CONF" <<NGINX
+# Routes *.dokku.<zone> → Dokku container
 # Managed by dokku-synology — do not edit manually
 server {
     listen 80;
-    server_name ~^.+\.dokku\..+$;
+    server_name ~^.+\.dokku\..+\$;
 
     access_log /var/log/nginx/dokku.access.log;
     error_log  /var/log/nginx/dokku.error.log;
@@ -99,12 +114,35 @@ server {
     location / {
         proxy_pass http://127.0.0.1:8080;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name ~^.+\.dokku\..+\$;
+
+    ssl_certificate     ${CERT_FILE};
+    ssl_certificate_key ${KEY_FILE};
+
+    access_log /var/log/nginx/dokku.access.log;
+    error_log  /var/log/nginx/dokku.error.log;
+
+    location / {
+        proxy_pass https://127.0.0.1:8443;
+        proxy_ssl_verify off;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
     }
 }
 NGINX
