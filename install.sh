@@ -53,6 +53,35 @@ fi
 docker exec dokku dokku version || die "Dokku container did not start correctly"
 log "Dokku is running: $(docker exec dokku dokku version)"
 
+# ── wildcard DNS entry (optional — requires DSM DNS Server package) ────────────
+RNDC="/var/packages/DNSServer/target/bin/rndc"
+RNDC_KEY="/var/packages/DNSServer/target/named/rndc.key"
+ZONE_DIR="/var/packages/DNSServer/target/named/etc/zone/master"
+
+if [[ -x "$RNDC" && -d "$ZONE_DIR" ]]; then
+  read -rp "[dokku-synology] DNS zone name (e.g. home.arpa): " SYNO_DNS_ZONE </dev/tty
+  read -rp "[dokku-synology] NAS IP address (e.g. 192.168.0.74): " SYNO_NAS_IP </dev/tty
+
+  ZONE_FILE="${ZONE_DIR}/${SYNO_DNS_ZONE}"
+  WILDCARD_RECORD="*.dokku.${SYNO_DNS_ZONE}.    86400   A   ${SYNO_NAS_IP}"
+
+  if [[ -f "$ZONE_FILE" ]]; then
+    if grep -q '^\*\.dokku\.' "$ZONE_FILE"; then
+      log "Wildcard DNS entry already exists — skipping"
+    else
+      sed -i "/^${SYNO_DNS_ZONE}\.[[:space:]]*NS/i ${WILDCARD_RECORD}" "$ZONE_FILE"
+      "$RNDC" -k "$RNDC_KEY" reload "$SYNO_DNS_ZONE"
+      log "Added *.dokku.${SYNO_DNS_ZONE} → ${SYNO_NAS_IP} and reloaded named"
+    fi
+  else
+    log "Zone file not found at $ZONE_FILE — skipping DNS entry"
+    log "Add manually: ${WILDCARD_RECORD}"
+  fi
+else
+  log "DSM DNS Server not found — skipping wildcard DNS entry"
+  log "Ensure your router forwards *.dokku.<zone> queries to this NAS"
+fi
+
 # ── write wildcard nginx conf ──────────────────────────────────────────────────
 WILDCARD_CONF="${SITES_ENABLED}/dokku-wildcard.conf"
 if [[ ! -f "$WILDCARD_CONF" ]]; then
