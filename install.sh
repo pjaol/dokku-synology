@@ -4,11 +4,22 @@
 # *.dokku.<zone> routes through DSM nginx → Dokku nginx → app containers.
 #
 # Usage: curl -fsSL https://raw.githubusercontent.com/pjaol/dokku-synology/main/install.sh -o /tmp/install.sh
-#        sudo bash /tmp/install.sh
+#        sudo bash /tmp/install.sh [--zone home.arpa]
 set -eo pipefail
 
 REPO_URL="https://github.com/pjaol/dokku-synology"
 CLONE_DIR="/var/lib/dokku-synology"
+DOKKU_ZONE="home.arpa"  # default zone — override with --zone
+
+# ── parse args ─────────────────────────────────────────────────────────────────
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --zone) DOKKU_ZONE="$2"; shift 2 ;;
+    *) die "Unknown argument: $1" ;;
+  esac
+done
+
+DOKKU_HOSTNAME="dokku.${DOKKU_ZONE}"
 
 # ── helpers ────────────────────────────────────────────────────────────────────
 log()  { echo "[dokku-synology] $*"; }
@@ -41,7 +52,7 @@ if docker ps -q --filter name=^dokku$ | grep -q .; then
   log "Dokku container already running — skipping start"
 else
   log "Starting Dokku container..."
-  docker compose -f "${CLONE_DIR}/dokku/dokku-docker-compose.yaml" up -d
+  DOKKU_HOSTNAME="$DOKKU_HOSTNAME" docker compose -f "${CLONE_DIR}/dokku/dokku-docker-compose.yaml" up -d
 
   log "Waiting for Dokku to be ready..."
   for i in $(seq 1 30); do
@@ -87,11 +98,11 @@ CERT_DIR="/etc/nginx"
 CERT_FILE="${CERT_DIR}/dokku-wildcard.crt"
 KEY_FILE="${CERT_DIR}/dokku-wildcard.key"
 if [[ ! -f "$CERT_FILE" ]]; then
-  log "Generating self-signed wildcard cert for *.dokku.<zone>..."
+  log "Generating self-signed wildcard cert for *.${DOKKU_HOSTNAME}..."
   openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
     -keyout "$KEY_FILE" -out "$CERT_FILE" \
-    -subj "/CN=*.dokku.home.arpa" \
-    -addext "subjectAltName=DNS:*.dokku.home.arpa" 2>/dev/null
+    -subj "/CN=*.${DOKKU_HOSTNAME}" \
+    -addext "subjectAltName=DNS:*.${DOKKU_HOSTNAME}" 2>/dev/null
   log "Cert written to $CERT_FILE"
 else
   log "Wildcard cert already exists — skipping"
@@ -165,7 +176,7 @@ echo "  2. Deploy an app:"
 echo "     git remote add dokku ssh://dokku@<nas-ip>:3022/<appname>"
 echo "     git push dokku main"
 echo ""
-echo "     Your app will be available at: http://<appname>.dokku.home.arpa"
+echo "     Your app will be available at: http://<appname>.${DOKKU_HOSTNAME}"
 echo ""
 echo "  Dokku admin:"
 echo "     docker exec dokku dokku apps:list"
