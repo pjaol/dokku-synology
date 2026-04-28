@@ -5,24 +5,24 @@ Run [Dokku](https://dokku.com) on a Synology NAS — `git push` deploys with aut
 ## How it works
 
 ```
-git push :3022 ──► Dokku container (port 8080)
+git push :3022 ──► Dokku container
                         │
                         └─ builds image, runs app container, manages nginx vhosts
 
-Browser ──► DSM nginx :80
+Browser ──► DSM nginx :80 / :443
                 │
-                └─ *.dokku.home.arpa ──► 127.0.0.1:8080 ──► Dokku nginx ──► app
+                └─ *.dokku.<zone> ──► 127.0.0.1:8080/8443 ──► Dokku nginx ──► app
 ```
 
-- DSM nginx has one static wildcard conf routing `*.dokku.<zone>` → Dokku on port 8080
+- DSM nginx has one static wildcard conf routing `*.dokku.<zone>` → Dokku on ports 8080 (HTTP) and 8443 (HTTPS)
 - Dokku's own nginx handles per-app routing by `Host:` header — no per-app DSM config needed
-- DNS: your router forwards `*.dokku.<zone>` to the NAS (wildcard — works for all apps automatically)
+- DNS: a single `*.dokku.<zone>` wildcard A record covers all apps automatically
 
 ## Requirements
 
 - Synology DSM 7.x
 - Container Manager installed
-- `git` installed on the NAS (via Synology Package Center or Entware)
+- `git` and `openssl` installed on the NAS (via Synology Package Center or Entware)
 - Router configured to forward `dokku.<zone>` DNS queries to the NAS
 
 ## Install
@@ -34,12 +34,20 @@ curl -fsSL https://raw.githubusercontent.com/pjaol/dokku-synology/main/install.s
 sudo bash /tmp/install.sh
 ```
 
+Default zone is `home.arpa`. To use a different zone:
+
+```bash
+sudo bash /tmp/install.sh --zone example.local
+```
+
 > Note: `bash <(curl ...)` process substitution is not supported on DSM's ash shell — download first.
 
 The installer:
 1. Clones this repo to `/var/lib/dokku-synology`
 2. Starts the Dokku container (docker sock + named volume only)
-3. Writes `/etc/nginx/sites-enabled/dokku-wildcard.conf` and reloads DSM nginx
+3. If DSM DNS Server is installed: adds a `*.dokku.<zone>` wildcard A record and reloads named
+4. Generates a self-signed wildcard TLS cert for `*.dokku.<zone>`
+5. Writes `/etc/nginx/sites-enabled/dokku-wildcard.conf` (HTTP + HTTPS) and reloads DSM nginx
 
 ## Post-install
 
@@ -55,7 +63,19 @@ git remote add dokku ssh://dokku@<nas-ip>:3022/<appname>
 git push dokku main
 ```
 
-App is available at `http://<appname>.dokku.home.arpa` — no extra config needed.
+App is available at:
+- `http://<appname>.dokku.<zone>`
+- `https://<appname>.dokku.<zone>` (self-signed cert — browser will warn)
+
+## TLS certificates
+
+The installer generates a self-signed wildcard cert valid for 10 years. Browsers will show a security warning unless you add the cert to your trusted store.
+
+To add the cert to your Mac's keychain:
+```bash
+scp root@<nas-ip>:/etc/nginx/dokku-wildcard.crt ~/dokku-wildcard.crt
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ~/dokku-wildcard.crt
+```
 
 ## Managing apps
 
