@@ -8,11 +8,8 @@ services:
       - "8080:80"    # DSM nginx wildcard proxies *.dokku.<zone> → here
       - "8443:443"
     volumes:
-      - dokku-data:/var/lib/dokku
+      - /var/lib/dokku:/var/lib/dokku
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       DOKKU_HOSTNAME: ${DOKKU_HOSTNAME:-dokku.home.arpa}
     restart: unless-stopped
-
-volumes:
-  dokku-data:

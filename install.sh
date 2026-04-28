@@ -52,6 +52,7 @@ if docker ps -q --filter name=^dokku$ | grep -q .; then
   log "Dokku container already running — skipping start"
 else
   log "Starting Dokku container..."
+  mkdir -p /var/lib/dokku
   DOKKU_HOSTNAME="$DOKKU_HOSTNAME" docker compose -f "${CLONE_DIR}/dokku/dokku-docker-compose.yaml" up -d
 
   log "Waiting for Dokku to be ready..."
