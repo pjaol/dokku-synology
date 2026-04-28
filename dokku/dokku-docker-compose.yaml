@@ -4,38 +4,15 @@ services:
     container_name: dokku
     network_mode: bridge
     ports:
-      - "3022:22"    # git push deploys: ssh://dokku@nas:3022/<appname>
-      - "8080:80"    # app HTTP — DSM nginx proxies *.dokku.home.arpa → localhost:8080
-      - "8443:443"   # app HTTPS
+      - "3022:22"    # git push deploys: ssh://dokku@<nas>:3022/<appname>
+      - "8080:80"    # DSM nginx wildcard proxies *.dokku.<zone> → here
+      - "8443:443"
     volumes:
-      - dokku-data:/mnt/dokku
+      - dokku-data:/var/lib/dokku
       - /var/run/docker.sock:/var/run/docker.sock
-      # synology-proxy plugin: write nginx drop-in confs and reload DSM nginx
-      - /usr/local/etc/nginx/conf.d:/usr/local/etc/nginx/conf.d
-      - /bin/nginx:/usr/sbin/nginx:ro
-      - /run/nginx.pid:/run/nginx.pid
-      # synology-dns plugin: write to DSM bind9 zone files
-      - /var/packages/DNSServer/target/named:/var/packages/DNSServer/target/named
-      # shared reload trigger dir — plugin writes <zone> file, sidecar calls rndc
-      - dns-reload:/reload
     environment:
       DOKKU_HOSTNAME: dokku.home.arpa
     restart: unless-stopped
 
-  rndc-sidecar:
-    image: alpine:3.19
-    container_name: rndc-sidecar
-    network_mode: host
-    command: sh -c "apk add --no-cache bind && sh /rndc-sidecar.sh"
-    volumes:
-      - dns-reload:/reload
-      - /var/packages/DNSServer/target/named/rndc.key:/rndc.key:ro
-      - ./rndc-sidecar.sh:/rndc-sidecar.sh:ro
-    restart: unless-stopped
-    entrypoint: []
-    depends_on:
-      - dokku
-
 volumes:
   dokku-data:
-  dns-reload:
