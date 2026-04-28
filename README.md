@@ -4,26 +4,84 @@ Run [Dokku](https://dokku.com) on a Synology NAS — `git push` deploys with aut
 
 ## How it works
 
-```
-git push :3022 ──► Dokku container
-                        │
-                        └─ builds image, runs app container, manages nginx vhosts
+### Deploy flow
 
-Browser ──► DSM nginx :80 / :443
-                │
-                └─ *.dokku.<zone> ──► 127.0.0.1:8080/8443 ──► Dokku nginx ──► app
+```mermaid
+sequenceDiagram
+    participant Dev as Developer
+    participant Dokku as Dokku container<br/>(NAS:3022)
+    participant Docker as Docker Engine
+    participant App as App container
+
+    Dev->>Dokku: git push ssh://dokku@nas:3022/myapp
+    Dokku->>Docker: build image (Dockerfile or buildpack)
+    Docker->>App: run app container
+    Dokku->>Dokku: configure nginx vhost for myapp
 ```
 
-- DSM nginx has one static wildcard conf routing `*.dokku.<zone>` → Dokku on ports 8080 (HTTP) and 8443 (HTTPS)
+### Request routing
+
+```mermaid
+flowchart LR
+    Browser -->|"myapp.dokku.home.arpa\n:80 / :443"| Router
+    Router -->|"*.dokku.home.arpa\nDNS forward policy"| NAS_DNS["NAS bind9\n(DSM DNS Server)"]
+    NAS_DNS -->|"wildcard A record\n*.dokku.home.arpa → nas-ip"| DSM_Nginx["DSM nginx\n:80 / :443"]
+    DSM_Nginx -->|"proxy_pass\nlocalhost:8080 / :8443"| Dokku_Nginx["Dokku nginx\n(inside container)"]
+    Dokku_Nginx -->|"Host: myapp.dokku.home.arpa"| App["app container"]
+```
+
+Key points:
+- DSM nginx has **one static wildcard conf** routing `*.dokku.<zone>` → Dokku on ports 8080 (HTTP) and 8443 (HTTPS)
 - Dokku's own nginx handles per-app routing by `Host:` header — no per-app DSM config needed
-- DNS: a single `*.dokku.<zone>` wildcard A record covers all apps automatically
+- A single `*.dokku.<zone>` wildcard DNS record covers all apps automatically
+
+## Networking & DNS
+
+This setup assumes you are running DNS in your network — either DSM DNS Server on the NAS, a Pi-hole, or similar. Without DNS, you will need to manually manage host entries for each app.
+
+### Zone structure
+
+The NAS runs bind9 (via DSM DNS Server) as the authoritative nameserver for your zone (default: `home.arpa`). A single wildcard A record covers all Dokku apps:
+
+```
+*.dokku.home.arpa.    86400    IN    A    <nas-ip>
+```
+
+The installer adds this record automatically if DSM DNS Server is detected.
+
+### Router DNS forwarding
+
+Your router needs a DNS forward policy so that `*.dokku.<zone>` queries are sent to the NAS rather than resolved upstream. The exact steps depend on your router firmware, but the policy should be:
+
+| Domain | Forward to |
+|--------|-----------|
+| `dokku.<zone>` (or `*.dokku.<zone>`) | `<nas-ip>` |
+
+Without this, clients on your LAN will not resolve `*.dokku.<zone>` even if the NAS bind9 has the record.
+
+### Without DSM DNS Server
+
+If you don't have DSM DNS Server installed, the installer skips the DNS step. You can handle resolution in any of these ways:
+
+- Add a forward policy in your router pointing `*.dokku.<zone>` at the NAS IP
+- Add a wildcard entry in Pi-hole or Adguard Home
+- Manually add `/etc/hosts` entries per app on each client (not recommended)
+
+### Port mapping
+
+| Port | Service | Purpose |
+|------|---------|---------|
+| 3022 | Dokku SSH | `git push` deploys |
+| 8080 | Dokku nginx (HTTP) | DSM nginx proxies `*.dokku.<zone>:80` here |
+| 8443 | Dokku nginx (HTTPS) | DSM nginx proxies `*.dokku.<zone>:443` here |
 
 ## Requirements
 
 - Synology DSM 7.x
 - Container Manager installed
 - `git` and `openssl` installed on the NAS (via Synology Package Center or Entware)
-- Router configured to forward `dokku.<zone>` DNS queries to the NAS
+- DNS in your network (DSM DNS Server, Pi-hole, router, etc.)
+- Router configured to forward `*.dokku.<zone>` queries to the NAS
 
 ## Install
 
