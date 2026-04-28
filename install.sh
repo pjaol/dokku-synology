@@ -52,7 +52,33 @@ if docker ps -q --filter name=^dokku$ | grep -q .; then
   log "Dokku container already running — skipping start"
 else
   log "Starting Dokku container..."
-  mkdir -p /var/lib/dokku
+
+  # Bootstrap /var/lib/dokku on the host if empty — Dokku's init script requires
+  # the directory skeleton to exist before it can chown it. We start a temporary
+  # container with a named volume, let it initialize, copy the result to the host
+  # path, then restart with the bind mount.
+  if [[ ! -f "/var/lib/dokku/VERSION" ]]; then
+    log "Bootstrapping /var/lib/dokku from Dokku image..."
+    mkdir -p /var/lib/dokku
+    docker run -d --name dokku-bootstrap \
+      -v dokku-bootstrap-data:/var/lib/dokku \
+      -v /var/run/docker.sock:/var/run/docker.sock \
+      -e DOKKU_HOSTNAME="$DOKKU_HOSTNAME" \
+      dokku/dokku:0.37.10
+    for i in $(seq 1 60); do
+      docker exec dokku-bootstrap dokku version &>/dev/null && break
+      sleep 2
+    done
+    docker stop dokku-bootstrap
+    docker run --rm \
+      -v dokku-bootstrap-data:/src \
+      -v /var/lib/dokku:/dst \
+      busybox sh -c "cd /src && tar cf - . | (cd /dst && tar xf -)" 2>/dev/null || true
+    docker rm dokku-bootstrap
+    docker volume rm dokku-bootstrap-data
+    log "/var/lib/dokku bootstrapped"
+  fi
+
   DOKKU_HOSTNAME="$DOKKU_HOSTNAME" docker compose -f "${CLONE_DIR}/dokku/dokku-docker-compose.yaml" up -d
 
   log "Waiting for Dokku to be ready..."
